@@ -1,70 +1,147 @@
-# Profiling no super computador
+# Perfilamento do LU (Splash2) <!-- no super computador -->
 
-## Configurando o ambiente e o arquivo makefile
+<!-- ## Configurando o ambiente parsec
 
-Na pasta do projeto parsec, para habilitar o comando parsecmgmt no ambiente do sistema deve ser executado o comando
+Na pasta raiz do projeto parsec, para habilitar o comando parsecmgmt no ambiente do sistema deve ser executado o comando
 
+```sh
 $ source env.sh
+```
 
-Na pasta .../lu_cb/src/ no arquivo makefile, deve ser escrito:
+Na pasta `config` no arquivo **gcc.bldconf** deve alterar as variáveis para:
 
-CFLAGS := $(CFLAGS) -Wall -O1 -pg -W -Wmissing-prototypes -Wmissing-declarations -Wredundant-decls -Wdisabled-optimization
+export CFLAGS=" -pg -g -funroll-loops -fprefetch-loop-arrays ${PORTABILITY_FLAGS}"
+export CXXFLAGS="-pg -g -funroll-loops -fprefetch-loop-arrays -fpermissive -fno-exceptions ${PORTABILITY_FLAGS}"
 
-CFLAGS := $(CFLAGS) -Wpadded -Winline -Wpointer-arith -Wsign-compare -Wendif-labels
+Na pasta `ext/splash2/kernels/lu_cb/src/` no arquivo **makefile**, deve alterar a variável para:
 
-LDFLAGS := $(LDFLAGS) -pthread -lm 
-
-Onde, 
-
-* -O1 representa a flag de otimização, recomenda-se usar -O1 ou -O0 ao invés de -O2 ou -O3.
-* -pthread deve ser adicionado para executar as funções da biblioteca pthread.
+CFLAGS = -pg -w
 
 ## Construindo e executando o projeto
 
 Após alteração caso já tenha feito o build antes disso:
- 
+
+```sh
 $ parsecmgmt -a uninstall -p splash2.lu_cb
+$ parsecmgmt -a uninstall -p splash2x.lu_cb
+```
 
 Caso não tenha feito a build ainda:
 
+```sh
 $ parsecmgmt -a build -p splash2.lu_cb
+$ parsecmgmt -a build -p splash2x.lu_cb
+```
 
-Depois executar normalmente: 
+Depois executar normalmente:
 
-$ parsecmgmt -a run -p splash2.lu_cb -i 'native'
+```sh
+$ parsecmgmt -a run -p splash2x.lu_cb -i native
+```
 
-O arquivo será gerado dentro da pasta /run dentro do projeto.
-
-Pasta projeto: /parsec-3.0/ext/splash2/kernels/lu_cb/
+O arquivo **gmon.out** será gerado dentro da pasta `ext/splash2x/kernels/lu_cb/run` dentro do projeto.
 
 ## Preparando a execução do profiling
 
-na pasta *.../lu_cb/run/* foi criado um novo arquivo chamado *gmon.out*. Mova esta arquivo para a pasta *.../lu_cb/inst/amd64-linux.gcc/bin*, onde haverá um arquivo executável *lu_cb*.
+Na pasta `ext/splash2/kernels/lu_cb/run` foi criado um novo arquivo chamado **gmon.out**.
 
-## Profiling
+Mova esta arquivo para a pasta `ext/splash2x/kernels/lu_cb/inst/amd64-linux.gcc/bin`, onde haverá um arquivo executável **lu_cb**.
 
-executar o comando 
+## Perfilamento com Gprof
 
-$ gprof lu_cb gmon.out
+```sh
+$ gprof ./lu_cb gmon.out > report.txt
+```
 
-# Profiling na máquina local
+## Gprof2dot
 
-na pasta *.../lu_cb/obj/amd64-linux.gcc* haverá um arquivo *lu.c*. Você também pode executar o profiling apenas com este arquivo na sua máquina local. Para tal, execute:
+```sh
+$ gprof ./lu_cb | ./gprof2dot.py | dot -Tpng -o result.png
+```
 
-* Compilação:
+## Executar no supercomputador
 
-$ gcc -pg -Wall -pthread -g -o lu lu.c -lm
+Cria um arquivo `run` com:
 
-* Execução:
+```
+#!/bin/bash
+#SBATCH --time=0-0:30
+time ./amd64-linux.gcc/lu.o -p1 -n8096 -b32
+```
 
-$ ./lu
+E executa:
 
-* Profiling
+```sh
+$ sbatch run
+```
 
-$ gprof lu gmon.out
+-->
+
+# Perfilar na máquina local
+
+## Usando makefile
+
+Nas pastas `./pthread` e `./openmp` tem um arquivo `makefile`.
+
+```sh
+$ make
+```
+
+## Compilando com gcc
+
+Você pode compilar e executar o perfilamento na sua máquina local e ter o resultado no `report.txt`. Para tal, execute:
+
+- Compilação com pthread:
+
+```sh
+$ gcc -pthread -g -o lu_pt lu_pt.c
+```
+
+- Compilação com OpenMP
+
+```sh
+$ gcc -fopen -g -o lu_mp lu_mp.c
+```
+
+- Execução com entrada "native" (10-25min):
+
+```sh
+$ time ./lu -p1 -n8192 -b16 -t
+```
+
+- Perfilamento:
+
+```sh
+$ gprof ./lu gmon.out > report.txt
+```
+
+- Gprof2dot:
+
+```sh
+$ chmod +x ./gprof2dot.py
+$ gprof ./lu | ./gprof2dot.py | dot -Tpng -o result.png
+```
+
+## Executando a aplicação
+
+- Execução com entrada "native" (10-25min):
+
+```sh
+$ time ./lu -p1 -n8192 -b16 -t
+```
 
 # Auto vetorização
 
 Para habilitar a auto vetorização do algoritmo e salvar o _output_ em um arquivo _vectorization.txt_, compile o código com a seguinte instrução:
 
-gcc -pthread -g -o lu.o lu.c -O3 -ftree-vectorize -funsafe-math-optimizations -msse2 -ftree-vectorizer-verbose=2 > vectorization.txt -lm
+Com `funsafe-math-optimizations`:
+
+```sh
+$ gcc -pthread -g -o lu_vect_math.o lu.c -O3 -ftree-vectorize -funsafe-math-optimizations -msse2 -ftree-vectorizer-verbose=6 2> vect_math.txt -lm
+```
+
+Sem `funsafe-math-optimizations`:
+
+```sh
+$ gcc -pthread -g -o lu_vect.o lu.c -O3 -ftree-vectorize -msse2 -ftree-vectorizer-verbose=6 2> vect.txt -lm
+```

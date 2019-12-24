@@ -1,1 +1,5 @@
-*.vscode
+**/gmon.out
+**/report.txt
+**/result.png
+**/lu.o
+**/lu

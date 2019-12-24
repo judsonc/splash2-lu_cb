@@ -39,19 +39,10 @@
 /*                                                                       */
 /*************************************************************************/
 
-// Run by executing: gcc -Wall -g -pthread -o lu lu.c -lm
-
 #include <stdio.h>
 #include <math.h>
 #include <stdlib.h>
-
-#include <pthread.h>
-#include <sys/time.h>
-#include <unistd.h>
-#include <stdlib.h>
-#include <stdio.h>
-#define MAX_THREADS 1024
-pthread_t PThreadTable[MAX_THREADS];
+MAIN_ENV
 
 #define MAXRAND                         32767.0
 #define DEFAULT_N                         512
@@ -72,15 +63,8 @@ struct GlobalMemory {
   unsigned long rs; 
   unsigned long done;
   int id;
-  
-struct {
-	pthread_mutex_t	mutex;
-	pthread_cond_t	cv;
-	unsigned long	counter;
-	unsigned long	cycle;
-} (start);
-
-  pthread_mutex_t (idlock);
+  BARDEC(start)
+  LOCKDEC(idlock)
 } *Global;
 
 struct LocalCopies {
@@ -142,12 +126,7 @@ char *argv[];
   int size;
   unsigned long start;
 
-  {
-	struct timeval	FullTime;
-
-	gettimeofday(&FullTime, NULL);
-	(start) = (unsigned long)(FullTime.tv_usec + FullTime.tv_sec * 1000000);
-}
+  CLOCK(start)
 
   while ((ch = getopt(argc, argv, "n:p:b:cstoh")) != -1) {
     switch(ch) {
@@ -175,7 +154,7 @@ char *argv[];
     }
   }
 
-  {;}
+  MAIN_INITENV(,150000000)
 
   printf("\n");
   printf("Blocked Dense LU Factorization\n");
@@ -202,7 +181,7 @@ char *argv[];
     edge = block_size;
   }
   proc_bytes = (int *) malloc(P*sizeof(int));
-  last_malloc = (double **) malloc(P*sizeof(double *));;
+  last_malloc = (double **) G_MALLOC(P*sizeof(double *));
   for (i=0;i<P;i++) {
     proc_bytes[i] = 0;
     last_malloc[i] = NULL;
@@ -221,7 +200,7 @@ char *argv[];
     }
   }
   for (i=0;i<P;i++) {
-    last_malloc[i] = (double *) malloc(proc_bytes[i] + PAGE_SIZE);
+    last_malloc[i] = (double *) G_MALLOC(proc_bytes[i] + PAGE_SIZE)
     if (last_malloc[i] == NULL) {
       fprintf(stderr,"Could not malloc memory blocks for proc %d\n",i);
       exit(-1);
@@ -234,7 +213,7 @@ char *argv[];
    aligned addresses as well.  This reduces false sharing */
 
   }
-  a = (double **) malloc(nblocks*nblocks*sizeof(double *));;
+  a = (double **) G_MALLOC(nblocks*nblocks*sizeof(double *));
   if (a == NULL) {
     printerr("Could not malloc memory for a\n");
     exit(-1);
@@ -254,18 +233,18 @@ char *argv[];
     }
   }
 
-  rhs = (double *) malloc(n*sizeof(double));;
+  rhs = (double *) G_MALLOC(n*sizeof(double));
   if (rhs == NULL) {
     printerr("Could not malloc memory for rhs\n");
     exit(-1);
   } 
 
-  Global = (struct GlobalMemory *) malloc(sizeof(struct GlobalMemory));;
-  Global->t_in_fac = (double *) malloc(P*sizeof(double));;
-  Global->t_in_mod = (double *) malloc(P*sizeof(double));;
-  Global->t_in_solve = (double *) malloc(P*sizeof(double));;
-  Global->t_in_bar = (double *) malloc(P*sizeof(double));;
-  Global->completion = (double *) malloc(P*sizeof(double));;
+  Global = (struct GlobalMemory *) G_MALLOC(sizeof(struct GlobalMemory));
+  Global->t_in_fac = (double *) G_MALLOC(P*sizeof(double));
+  Global->t_in_mod = (double *) G_MALLOC(P*sizeof(double));
+  Global->t_in_solve = (double *) G_MALLOC(P*sizeof(double));
+  Global->t_in_bar = (double *) G_MALLOC(P*sizeof(double));
+  Global->completion = (double *) G_MALLOC(P*sizeof(double));
 
   if (Global == NULL) {
     printerr("Could not malloc memory for Global\n");
@@ -289,7 +268,9 @@ char *argv[];
 
 /* POSSIBLE ENHANCEMENT:  Here is where one might distribute the a[i]
    blocks across physically distributed memories as desired.
+
    One way to do this is as follows:
+
    for (i=0;i<nblocks;i++) {
      for (j=0;j<nblocks;j++) {
        proc_num = BlockOwner(i,j);
@@ -300,6 +281,7 @@ char *argv[];
        } else {
          size = block_size*block_size;
        }
+
        Place all addresses x such that 
        (&(a[i+j*nblocks][0]) <= x < &(a[i+j*nblocks][size-1])) 
        on node proc_num
@@ -307,41 +289,11 @@ char *argv[];
    }
 */
 
-  {
-	unsigned long	Error;
-
-	Error = pthread_mutex_init(&(Global->start).mutex, NULL);
-	if (Error != 0) {
-		printf("Error while initializing barrier.\n");
-		exit(-1);
-	}
-
-	Error = pthread_cond_init(&(Global->start).cv, NULL);
-	if (Error != 0) {
-		printf("Error while initializing barrier.\n");
-		pthread_mutex_destroy(&(Global->start).mutex);
-		exit(-1);
-	}
-
-	(Global->start).counter = 0;
-	(Global->start).cycle = 0;
-};
-  {pthread_mutex_init(&(Global->idlock), NULL);};
+  BARINIT(Global->start);
+  LOCKINIT(Global->idlock);
   Global->id = 0;
   //for (i=1; i<P; i++) {
-  {
-	long	i, Error;
-
-	for (i = 0; i < (P) - 1; i++) {
-		Error = pthread_create(&PThreadTable[i], NULL, (void * (*)(void *))(SlaveStart), NULL);
-		if (Error != 0) {
-			printf("Error in pthread_create().\n");
-			exit(-1);
-		}
-	}
-
-	SlaveStart();
-};
+  CREATE(SlaveStart, P);
   //}
 
   InitA(rhs);
@@ -352,16 +304,7 @@ char *argv[];
 
   //SlaveStart(MyNum);
 
-  {
-	unsigned long	i, Error;
-	for (i = 0; i < (P) - 1; i++) {
-		Error = pthread_join(PThreadTable[i], NULL);
-		if (Error != 0) {
-			printf("Error in pthread_join().\n");
-			exit(-1);
-		}
-	}
-}
+  WAIT_FOR_END(P)
 
   if (doprint) {
     printf("\nMatrix after decomposition:\n");
@@ -462,7 +405,7 @@ char *argv[];
     CheckResult(n, a, rhs);
   }
 
-  {exit(0);};
+  MAIN_END;
 }
 
 
@@ -475,10 +418,10 @@ void SlaveStart()
   int max_block;
   int MyNum;
 
-  {pthread_mutex_lock(&(Global->idlock));}
+  LOCK(Global->idlock)
     MyNum = Global->id;
     Global->id ++;
-  {pthread_mutex_unlock(&(Global->idlock));}
+  UNLOCK(Global->idlock)
 
 /* POSSIBLE ENHANCEMENT:  Here is where one might pin processes to
    processors to avoid migration */
@@ -513,115 +456,27 @@ int dostats;
   lc->t_in_bar = 0.0;
 
   /* barrier to ensure all initialization is done */
-  {
-	unsigned long	Error, Cycle;
-	int		Cancel, Temp;
-
-	Error = pthread_mutex_lock(&(Global->start).mutex);
-	if (Error != 0) {
-		printf("Error while trying to get lock in barrier.\n");
-		exit(-1);
-	}
-
-	Cycle = (Global->start).cycle;
-	if (++(Global->start).counter != (P)) {
-		pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &Cancel);
-		while (Cycle == (Global->start).cycle) {
-			Error = pthread_cond_wait(&(Global->start).cv, &(Global->start).mutex);
-			if (Error != 0) {
-				break;
-			}
-		}
-		pthread_setcancelstate(Cancel, &Temp);
-	} else {
-		(Global->start).cycle = !(Global->start).cycle;
-		(Global->start).counter = 0;
-		Error = pthread_cond_broadcast(&(Global->start).cv);
-	}
-	pthread_mutex_unlock(&(Global->start).mutex);
-};
+  BARRIER(Global->start, P);
 
   /* to remove cold-start misses, all processors touch their own data */
   TouchA(block_size, MyNum);
 
-  {
-	unsigned long	Error, Cycle;
-	int		Cancel, Temp;
-
-	Error = pthread_mutex_lock(&(Global->start).mutex);
-	if (Error != 0) {
-		printf("Error while trying to get lock in barrier.\n");
-		exit(-1);
-	}
-
-	Cycle = (Global->start).cycle;
-	if (++(Global->start).counter != (P)) {
-		pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &Cancel);
-		while (Cycle == (Global->start).cycle) {
-			Error = pthread_cond_wait(&(Global->start).cv, &(Global->start).mutex);
-			if (Error != 0) {
-				break;
-			}
-		}
-		pthread_setcancelstate(Cancel, &Temp);
-	} else {
-		(Global->start).cycle = !(Global->start).cycle;
-		(Global->start).counter = 0;
-		Error = pthread_cond_broadcast(&(Global->start).cv);
-	}
-	pthread_mutex_unlock(&(Global->start).mutex);
-};
+  BARRIER(Global->start, P);
 
 /* POSSIBLE ENHANCEMENT:  Here is where one might reset the
    statistics that one is measuring about the parallel execution */
 
   if ((MyNum == 0) || (dostats)) {
-    {
-	struct timeval	FullTime;
-
-	gettimeofday(&FullTime, NULL);
-	(myrs) = (unsigned long)(FullTime.tv_usec + FullTime.tv_sec * 1000000);
-};
+    CLOCK(myrs);
   }
 
   lu(n, block_size, MyNum, lc, dostats);
 
   if ((MyNum == 0) || (dostats)) {
-    {
-	struct timeval	FullTime;
-
-	gettimeofday(&FullTime, NULL);
-	(mydone) = (unsigned long)(FullTime.tv_usec + FullTime.tv_sec * 1000000);
-};
+    CLOCK(mydone);
   }
 
-  {
-	unsigned long	Error, Cycle;
-	int		Cancel, Temp;
-
-	Error = pthread_mutex_lock(&(Global->start).mutex);
-	if (Error != 0) {
-		printf("Error while trying to get lock in barrier.\n");
-		exit(-1);
-	}
-
-	Cycle = (Global->start).cycle;
-	if (++(Global->start).counter != (P)) {
-		pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &Cancel);
-		while (Cycle == (Global->start).cycle) {
-			Error = pthread_cond_wait(&(Global->start).cv, &(Global->start).mutex);
-			if (Error != 0) {
-				break;
-			}
-		}
-		pthread_setcancelstate(Cancel, &Temp);
-	} else {
-		(Global->start).cycle = !(Global->start).cycle;
-		(Global->start).counter = 0;
-		Error = pthread_cond_broadcast(&(Global->start).cv);
-	}
-	pthread_mutex_unlock(&(Global->start).mutex);
-};
+  BARRIER(Global->start, P);
 
   if ((MyNum == 0) || (dostats)) {
     Global->t_in_fac[MyNum] = lc->t_in_fac;
@@ -631,12 +486,7 @@ int dostats;
     Global->completion[MyNum] = mydone-myrs;
   }
   if (MyNum == 0) {
-    {
-	struct timeval	FullTime;
-
-	gettimeofday(&FullTime, NULL);
-	(myrf) = (unsigned long)(FullTime.tv_usec + FullTime.tv_sec * 1000000);
-};
+    CLOCK(myrf);
     Global->rs = myrs;
     Global->done = mydone;
     Global->rf = myrf;
@@ -799,12 +649,7 @@ int dostats;
     }
 
     if ((MyNum == 0) || (dostats)) {
-      {
-	struct timeval	FullTime;
-
-	gettimeofday(&FullTime, NULL);
-	(t1) = (unsigned long)(FullTime.tv_usec + FullTime.tv_sec * 1000000);
-};
+      CLOCK(t1);
     }
 
     /* factor diagonal block */
@@ -815,49 +660,13 @@ int dostats;
     }
 
     if ((MyNum == 0) || (dostats)) {
-      {
-	struct timeval	FullTime;
-
-	gettimeofday(&FullTime, NULL);
-	(t11) = (unsigned long)(FullTime.tv_usec + FullTime.tv_sec * 1000000);
-};
+      CLOCK(t11);
     }
 
-    {
-	unsigned long	Error, Cycle;
-	int		Cancel, Temp;
-
-	Error = pthread_mutex_lock(&(Global->start).mutex);
-	if (Error != 0) {
-		printf("Error while trying to get lock in barrier.\n");
-		exit(-1);
-	}
-
-	Cycle = (Global->start).cycle;
-	if (++(Global->start).counter != (P)) {
-		pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &Cancel);
-		while (Cycle == (Global->start).cycle) {
-			Error = pthread_cond_wait(&(Global->start).cv, &(Global->start).mutex);
-			if (Error != 0) {
-				break;
-			}
-		}
-		pthread_setcancelstate(Cancel, &Temp);
-	} else {
-		(Global->start).cycle = !(Global->start).cycle;
-		(Global->start).counter = 0;
-		Error = pthread_cond_broadcast(&(Global->start).cv);
-	}
-	pthread_mutex_unlock(&(Global->start).mutex);
-};
+    BARRIER(Global->start, P);
 
     if ((MyNum == 0) || (dostats)) {
-      {
-	struct timeval	FullTime;
-
-	gettimeofday(&FullTime, NULL);
-	(t2) = (unsigned long)(FullTime.tv_usec + FullTime.tv_sec * 1000000);
-};
+      CLOCK(t2);
     }
 
     /* divide column k by diagonal block */
@@ -891,49 +700,13 @@ int dostats;
     }
 
     if ((MyNum == 0) || (dostats)) {
-      {
-	struct timeval	FullTime;
-
-	gettimeofday(&FullTime, NULL);
-	(t22) = (unsigned long)(FullTime.tv_usec + FullTime.tv_sec * 1000000);
-};
+      CLOCK(t22);
     }   
 
-    {
-	unsigned long	Error, Cycle;
-	int		Cancel, Temp;
-
-	Error = pthread_mutex_lock(&(Global->start).mutex);
-	if (Error != 0) {
-		printf("Error while trying to get lock in barrier.\n");
-		exit(-1);
-	}
-
-	Cycle = (Global->start).cycle;
-	if (++(Global->start).counter != (P)) {
-		pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &Cancel);
-		while (Cycle == (Global->start).cycle) {
-			Error = pthread_cond_wait(&(Global->start).cv, &(Global->start).mutex);
-			if (Error != 0) {
-				break;
-			}
-		}
-		pthread_setcancelstate(Cancel, &Temp);
-	} else {
-		(Global->start).cycle = !(Global->start).cycle;
-		(Global->start).counter = 0;
-		Error = pthread_cond_broadcast(&(Global->start).cv);
-	}
-	pthread_mutex_unlock(&(Global->start).mutex);
-};
+    BARRIER(Global->start, P);
 
     if ((MyNum == 0) || (dostats)) {
-      {
-	struct timeval	FullTime;
-
-	gettimeofday(&FullTime, NULL);
-	(t3) = (unsigned long)(FullTime.tv_usec + FullTime.tv_sec * 1000000);
-};
+      CLOCK(t3);
     }
 
     /* modify subsequent block columns */
@@ -964,12 +737,7 @@ int dostats;
     }
 
     if ((MyNum == 0) || (dostats)) {
-      {
-	struct timeval	FullTime;
-
-	gettimeofday(&FullTime, NULL);
-	(t4) = (unsigned long)(FullTime.tv_usec + FullTime.tv_sec * 1000000);
-};
+      CLOCK(t4);
       lc->t_in_fac += (t11-t1);
       lc->t_in_solve += (t22-t2);
       lc->t_in_mod += (t4-t3);
